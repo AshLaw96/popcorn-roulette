@@ -11,14 +11,15 @@ lerna-debug.log*
 node_modules/
 frontend/node_modules/
 
-# Production Build outputs
+# Production Build outputs & Vercel temp files
 dist/
 dist-ssr/
 frontend/dist/
 frontend/dist-ssr/
 build/
+.vercel/
 
-# Local Environment Files (Crucial for your TMDB keys)
+# Local Environment Files (Crucial for keeping your TMDB keys safe!)
 .env
 .env.local
 .env.development.local
@@ -29,7 +30,7 @@ build/
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
@@ -37,8 +38,13 @@ build/
 *.sln
 *.sw?
 
-# Python Virtual Environments
+# Python Virtual Environments & Cache
 .venv/
 venv/
-
+env/
+ENV/
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/

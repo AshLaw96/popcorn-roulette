@@ -3,7 +3,7 @@ import random
 import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field  # 🌟 FIXED: Field is safely imported from pydantic now!
+from pydantic import BaseModel, Field
 from typing import Optional
 from dotenv import load_dotenv
 import httpx
