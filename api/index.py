@@ -1,11 +1,13 @@
 import os
 import random
-import requests
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Optional
+
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional
-from dotenv import load_dotenv
 import httpx
 
 # Load values from the hidden .env file
@@ -18,43 +20,58 @@ HEADERS = {
     "Authorization": f"Bearer {API_KEY}"
 }
 
-app = FastAPI(title="Popcorn Roulette API", version="1.0.0")
+# 🛠️ State Management: Keep a single, reusable AsyncClient for the app lifecycle
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Initialize the client with base parameters
+    app.state.client = httpx.AsyncClient(base_url=BASE_URL, headers=HEADERS)
+    yield
+    # Shutdown: Clean up sockets cleanly
+    await app.state.client.aclose()
 
-# 🔒 SECURITY SETUP: Allow React app to speak safely to Python server
+app = FastAPI(title="Popcorn Roulette API", version="1.0.0", lifespan=lifespan)
+
+# 🔒 SECURITY SETUP
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allows any local port to read the stream cleanly
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Define what fields API strictly expects using a Pydantic Model
+# Dynamically set maximum allowed year to the current year (currently 2026)
+CURRENT_YEAR = datetime.now().year
+
 class MovieFilterRequest(BaseModel):
     genre: Optional[str] = None
-    year: Optional[int] = Field(None, ge=1900, le=2026)
+    year: Optional[int] = Field(None, ge=1900, le=CURRENT_YEAR)
     actor: Optional[str] = None
     director: Optional[str] = None
     min_rating: Optional[float] = Field(5.0, ge=0.0, le=10.0)
     max_runtime: Optional[int] = Field(180, ge=30, le=300)
 
-def get_person_id(name: str) -> Optional[int]:
-    """Helper proxy function to convert full text names to internal TMDB profile IDs."""
+async def get_person_id(client: httpx.AsyncClient, name: str) -> Optional[int]:
+    """Helper async function to convert full text names to internal TMDB profile IDs."""
     if not name:
         return None
-    url = f"{BASE_URL}/search/person"
-    response = requests.get(url, params={"api_key": API_KEY, "query": name}, headers=HEADERS)
-    results = response.json().get("results", [])
-    return results[0]["id"] if results else None
+    try:
+        response = await client.get("/search/person", params={"api_key": API_KEY, "query": name})
+        results = response.json().get("results", [])
+        return results[0]["id"] if results else None
+    except httpx.HTTPError:
+        return None
 
 @app.get("/api/genres")
-def fetch_genres():
+async def fetch_genres():
     """Returns official TMDB movie genre mappings directly to the client UI."""
-    url = f"{BASE_URL}/genre/movie/list"
-    response = requests.get(url, params={"api_key": API_KEY, "language": "en"}, headers=HEADERS)
-    if response.status_code != 200:
+    client: httpx.AsyncClient = app.state.client
+    try:
+        response = await client.get("/genre/movie/list", params={"api_key": API_KEY, "language": "en"})
+        response.raise_for_status()
+        return response.json().get("genres", [])
+    except httpx.HTTPError:
         raise HTTPException(status_code=500, detail="Failed to pull indices from TMDB.")
-    return response.json().get("genres", [])
 
 @app.get("/api/search-person")
 async def search_person(query: str):
@@ -63,33 +80,32 @@ async def search_person(query: str):
     """
     if not query:
         return []
+    
+    client: httpx.AsyncClient = app.state.client
+    try:
+        response = await client.get(
+            "/search/person",
+            params={"api_key": API_KEY, "query": query, "include_adult": "false"}
+        )
+        response.raise_for_status()
+        results = response.json().get("results", [])
         
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(
-                f"{BASE_URL}/search/person",
-                headers=HEADERS,
-                params={"api_key": API_KEY, "query": query, "include_adult": "false"}
-            )
-            response.raise_for_status()
-            results = response.json().get("results", [])
-            
-            # Extract just the useful info: name, id, and what they are known for
-            return [
-                {
-                    "id": person["id"],
-                    "name": person["name"],
-                    "known_for_department": person.get("known_for_department", "")
-                }
-                for person in results[:5] # Limit to top 5 matches
-            ]
-        except httpx.HTTPStatusError:
-            raise HTTPException(status_code=500, detail="Failed to query TMDB person database.")
+        return [
+            {
+                "id": person["id"],
+                "name": person["name"],
+                "known_for_department": person.get("known_for_department", "")
+            }
+            # Limit to top 5 matches
+            for person in results[:5] 
+        ]
+    except httpx.HTTPStatusError:
+        raise HTTPException(status_code=500, detail="Failed to query TMDB person database.")
 
 @app.post("/api/roulette")
-def roll_movie_roulette(filters: MovieFilterRequest):
+async def roll_movie_roulette(filters: MovieFilterRequest):
     """Processes search properties, checks filters safely, and returns a randomised title choice."""
-    discover_url = f"{BASE_URL}/discover/movie"
+    client: httpx.AsyncClient = app.state.client
     
     # Establish production-grade baseline constraints
     params = {
@@ -106,26 +122,32 @@ def roll_movie_roulette(filters: MovieFilterRequest):
     if filters.year:
         params["primary_release_year"] = filters.year
 
-    # If the user selected an autocomplete item, our React app sends the ID string directly.
-    # If it is numeric, we skip text lookup entirely!
+    # Check actor constraints
     if filters.actor:
         if filters.actor.isdigit():
             params["with_cast"] = filters.actor
         else:
-            actor_id = get_person_id(filters.actor)
-            if actor_id: params["with_cast"] = actor_id
+            actor_id = await get_person_id(client, filters.actor)
+            if actor_id: 
+                params["with_cast"] = actor_id
         
+    # Check director constraints
     if filters.director:
         if filters.director.isdigit():
             params["with_crew"] = filters.director
         else:
-            director_id = get_person_id(filters.director)
-            if director_id: params["with_crew"] = director_id
+            director_id = await get_person_id(client, filters.director)
+            if director_id: 
+                params["with_crew"] = director_id
 
     # Call external API network pool safely
-    response = requests.get(discover_url, params=params, headers=HEADERS)
-    data = response.json()
-    movies = data.get("results", [])
+    try:
+        response = await client.get("/discover/movie", params=params)
+        response.raise_for_status()
+        data = response.json()
+        movies = data.get("results", [])
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Error communicating with upstream TMDB service.")
     
     if not movies:
         raise HTTPException(status_code=404, detail="No films found matching those parameters.")
