@@ -1,4 +1,4 @@
-export const BACKEND_URL = "http://127.0.0.1:8000/api";
+export const BACKEND_URL = "/api";
 
 /**
  * Submits roulette filters to the backend to pick a movie
