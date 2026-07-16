@@ -12,7 +12,7 @@ import httpx
 
 # Load values from the hidden .env file
 load_dotenv()
-API_KEY = os.getenv("TMDB_API_KEY")
+API_KEY = os.getenv("VITE_TMDB_API_KEY")
 BASE_URL = "https://api.themoviedb.org/3"
 
 HEADERS = {
