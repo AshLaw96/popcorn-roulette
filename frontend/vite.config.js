@@ -30,6 +30,14 @@ export default defineConfig(({ mode }) => {
     ],
     define: {
       'import.meta.env.VITE_TMDB_ACCESS_TOKEN': JSON.stringify(rawToken)
+    },
+    server: {
+      proxy: {
+        '/api': {
+          target: 'http://localhost:8000',
+          changeOrigin: true,
+        }
+      }
     }
   }
 })
