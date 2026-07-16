@@ -10,9 +10,6 @@
       "use": "@vercel/static-build",
       "config": {
         "distDir": "dist"
-      },
-      "env": {
-        "VITE_TMDB_ACCESS_TOKEN": "@vite_tmdb_access_token"
       }
     }
   ],
