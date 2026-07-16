@@ -4,22 +4,17 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
 export default defineConfig(({ mode }) => {
-  const rootPath = path.resolve(__dirname, '..');
+  // Look for .env files in BOTH the current frontend folder AND the root directory
+  const rootEnv = loadEnv(mode, path.resolve(__dirname, '..'), '');
+  const localEnv = loadEnv(mode, __dirname, '');
   
-  // 1. Load variables from physical .env files in the root folder
-  const env = loadEnv(mode, rootPath, '');
-  
-  // 2. Fall back to process.env (system shell) if the physical file doesn't have it
   const rawToken = 
-    env.VITE_TMDB_ACCESS_TOKEN || 
+    localEnv.VITE_TMDB_ACCESS_TOKEN || 
+    rootEnv.VITE_TMDB_ACCESS_TOKEN || 
     process.env.VITE_TMDB_ACCESS_TOKEN || 
-    env.TMDB_ACCESS_TOKEN || 
-    process.env.TMDB_ACCESS_TOKEN || 
     '';
 
   return {
-    envDir: rootPath,
-
     plugins: [
       react(), 
       tailwindcss(),
