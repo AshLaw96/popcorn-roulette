@@ -5,19 +5,24 @@ import path from 'path'
 
 export default defineConfig(({ mode }) => {
   const rootPath = path.resolve(__dirname, '..');
-  // Try to load env variables from the root folder
+  
+  // 1. Load variables from physical .env files in the root folder
   const env = loadEnv(mode, rootPath, '');
-  // Try to grab the token regardless of whether it has the VITE_ prefix or not
-  const rawToken = env.VITE_TMDB_ACCESS_TOKEN || env.TMDB_ACCESS_TOKEN || '';
+  
+  // 2. Fall back to process.env (system shell) if the physical file doesn't have it
+  const rawToken = 
+    env.VITE_TMDB_ACCESS_TOKEN || 
+    process.env.VITE_TMDB_ACCESS_TOKEN || 
+    env.TMDB_ACCESS_TOKEN || 
+    process.env.TMDB_ACCESS_TOKEN || 
+    '';
 
   return {
-
-    envDir: rootPath, // Set the envDir to the root path to ensure .env is loaded correctly
+    envDir: rootPath,
 
     plugins: [
       react(), 
       tailwindcss(),
-      // This custom plugin forces the token into the window object of index.html
       {
         name: 'html-transform',
         transformIndexHtml(html) {
@@ -29,7 +34,6 @@ export default defineConfig(({ mode }) => {
       }
     ],
     define: {
-      // Keep this fallback just in case
       'import.meta.env.VITE_TMDB_ACCESS_TOKEN': JSON.stringify(rawToken)
     }
   }
